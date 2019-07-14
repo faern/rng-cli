@@ -1,0 +1,26 @@
+[package]
+name = "rng-cli"
+version = "0.1.0"
+authors = ["Linus Färnstrand <faern@faern.net>"]
+description = """
+    A random data generator CLI tool. Prints an infinite stream of data generated from a selected
+    PRNG algorithm to stdout. Basically a CLI frontend for the `rand` crate.
+"""
+readme = "README.md"
+repository = "https://github.com/faern/rng-cli"
+license = "Apache-2.0/MIT"
+keywords = ["rng", "prng", "random", "rand", "cli"]
+categories = ["command-line-utilities", "algorithms", "cryptography"]
+edition = "2018"
+
+[[bin]]
+name = "rng"
+path = "src/main.rs"
+
+[dependencies]
+rand = "0.7.0"
+rand_chacha = "0.2.0"
+rand_hc = "0.2.0"
+rand_pcg = "0.2.0"
+rand_xorshift = "0.2.0"
+structopt = "0.2.18"
