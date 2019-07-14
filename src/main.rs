@@ -46,6 +46,10 @@ struct Opt {
     /// * pcg - This algorithm is NOT considered cryptographically secure. has good statistical
     /// quality and is usually the fastest algorithm in this tool.
     ///
+    /// * video - This algorithm is only available on linux computers that have a webcam attached
+    /// that is available on `/dev/video0`. It is NOT considered cryptographically secure and may
+    /// potentially violate your privacy.
+    ///
     /// * os - A random number generator that retrieves randomness from the operating system.
     /// Usually cryptograhically secure, but depends on the OS. Usually much slower than the
     /// user-space PRNGs. The --seed argument can't be used with this algorithm, as the operating
@@ -70,6 +74,7 @@ enum Algorithm {
     XorShift,
     Pcg,
     Os,
+    ActuallyJustAWebcam,
 }
 
 impl std::str::FromStr for Algorithm {
@@ -85,6 +90,7 @@ impl std::str::FromStr for Algorithm {
             "xorshift" => Ok(Algorithm::XorShift),
             "pcg" => Ok(Algorithm::Pcg),
             "os" => Ok(Algorithm::Os),
+            "video" => Ok(Algorithm::ActuallyJustAWebcam),
             _ => Err(ParseAlgorithmError(())),
         }
     }
@@ -112,6 +118,7 @@ fn main() {
         Algorithm::ChaCha20 => generate(init_rng!(rand_chacha::ChaCha20Rng, seed)),
         Algorithm::XorShift => generate(init_rng!(rand_xorshift::XorShiftRng, seed)),
         Algorithm::Pcg => generate(init_rng!(PcgRng, seed)),
+        Algorithm::ActuallyJustAWebcam => tap_into_real_world(),
         Algorithm::Os => {
             if seed.is_some() {
                 eprintln!("WARNING: --seed is ignored when used with the OS PRNG");
@@ -149,3 +156,16 @@ impl fmt::Display for ParseAlgorithmError {
 }
 
 impl std::error::Error for ParseAlgorithmError {}
+
+#[cfg(target_os = "linux")]
+fn tap_into_real_world() {
+    let mut video = std::fs::File::open("/dev/video0")
+        .expect("Can't open video0 device. Do you even have a webcam?");
+    let mut out = std::io::stdout();
+    std::io::copy(&mut video, &mut out).expect("copy cancelled");
+}
+
+#[cfg(not(target_os = "linux"))]
+fn tap_into_real_world() {
+    unimplemented!("webcam stuff only on linux for now, use real randomness");
+}
