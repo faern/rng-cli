@@ -42,10 +42,10 @@ struct Opt {
     /// * chacha[8,12,20] - A cryptographically secure random number generator that uses the ChaCha
     /// algorithm. Uses 8, 12 or 20 rounds. Defaults to 20 rounds if the number is not specified.
     ///
-    /// * xorshift - The Xorshift algorithm is NOT suitable for cryptographic purposes, but is fast.
+    /// * xorshift - This algorithm is NOT suitable for cryptographic purposes, but is fast.
     ///
-    /// * pcg - This algorithm is NOT considered cryptographically secure. has good statistical
-    /// quality and is usually the fastest algorithm in this tool.
+    /// * pcg - This algorithm is NOT considered cryptographically secure. But it has good
+    /// statistical quality and is usually the fastest algorithm in this tool.
     ///
     /// * os - A random number generator that retrieves randomness from the operating system.
     /// Usually cryptograhically secure, but depends on the OS. Usually much slower than the
@@ -55,7 +55,8 @@ struct Opt {
 
     /// Optionally seed the random number generator algorithm with a given 64 bit unsigned integer.
     /// This makes the output of the program identical for each run with the same algorithm and
-    /// same seed. If this argument is not given, the PRNG will be seeded from the operating system.
+    /// same seed.
+    /// If this argument is not given, the PRNG will be seeded from the operating system.
     /// Specifying a seed is NOT recommended for cryptographic use.
     #[structopt(long)]
     seed: Option<u64>,
