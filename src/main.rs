@@ -20,6 +20,7 @@ type PcgRng = rand_pcg::Pcg32;
 #[derive(Debug, StructOpt)]
 #[structopt(
     name = "rng",
+    author = "Linus Färnstrand <faern@faern.net>",
     about = "
         A random data generator CLI tool.
 
