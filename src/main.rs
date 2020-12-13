@@ -20,8 +20,14 @@ type PcgRng = rand_pcg::Pcg32;
     about = "
         A random data generator CLI tool.
 
-        Contains a number of (pseudo) random number generator algorithms. Given one of these it
-        prints an infinite stream of bytes generated from that algorithm to stdout.
+        Contains a number of (pseudo) random number generator (PRNG) algorithms.
+        Given one of these it prints an infinite stream of bytes generated from
+        that algorithm to stdout.
+
+        By default this tool operates in a multi threaded mode where new worker threads are
+        spawned until the write speed to stdout is saturated. This means multiple PRNG instances
+        are executed in parallel and their generated data is interleaved to stdout. See
+        --max-threads for more.
     ",
     rename_all = "kebab-case"
 )]
