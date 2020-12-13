@@ -119,6 +119,18 @@ impl std::str::FromStr for Algorithm {
     }
 }
 
+#[derive(Debug)]
+struct ParseAlgorithmError(());
+
+impl fmt::Display for ParseAlgorithmError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Invalid algorithm. See --help for a list of valid options."
+        )
+    }
+}
+
 fn main() {
     let opt = Opt::from_args();
     let algorithm = opt.algorithm.unwrap_or(Algorithm::Default);
@@ -280,17 +292,3 @@ mod singlethreaded {
         }
     }
 }
-
-#[derive(Debug)]
-struct ParseAlgorithmError(());
-
-impl fmt::Display for ParseAlgorithmError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Invalid algorithm. See --help for a list of valid options."
-        )
-    }
-}
-
-impl std::error::Error for ParseAlgorithmError {}
