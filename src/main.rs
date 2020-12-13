@@ -26,12 +26,14 @@ type PcgRng = rand_pcg::Pcg32;
     rename_all = "kebab-case"
 )]
 struct Opt {
-    /// Which random number generator algorithm to use. All of these are user-space PRNGs, except
-    /// the "os" one. All user-space generators are seeded with entropy from the operating system,
+    /// The random number generator algorithm to use. All of these are user-space PRNGs, except
+    /// "os". All user-space generators are seeded with entropy from the operating system,
     /// unless the --seed argument is given.
-    /// Possible values are:
     ///
-    /// * default - The default user-space PRNG. Considered cryptographically secure.
+    /// If no algorithm is specified, a cryptographically secure algorithm with good performance
+    /// is used.
+    ///
+    /// Possible values are:
     ///
     /// * hc - A cryptographically secure random number generator that uses the HC-128 algorithm.
     ///
@@ -95,7 +97,6 @@ impl std::str::FromStr for Algorithm {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "default" => Ok(Algorithm::Default),
             "hc" => Ok(Algorithm::Hc),
             "chacha" | "chacha20" => Ok(Algorithm::ChaCha20),
             "chacha8" => Ok(Algorithm::ChaCha8),
