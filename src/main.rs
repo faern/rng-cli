@@ -1,7 +1,7 @@
 use std::fmt;
 use structopt::StructOpt;
 
-/// The number of bytes to handle in each generate-print iteration.
+/// The number of bytes to handle in each generate-write iteration.
 const BUFFER_SIZE: usize = 64 * 1024;
 
 // We select PCG algorithm depending on platform. In order to get the best performance possible.
@@ -21,7 +21,7 @@ type PcgRng = rand_pcg::Pcg32;
         A random data generator CLI tool.
 
         Contains a number of (pseudo) random number generator (PRNG) algorithms.
-        Given one of these it prints an infinite stream of bytes generated from
+        Given one of these it writes an infinite stream of bytes generated from
         that algorithm to stdout.
 
         By default this tool operates in a multi threaded mode where new worker threads are
@@ -213,7 +213,7 @@ mod multithreaded {
             threads.push(thread::spawn(move || {
                 let mut rng = R::from_entropy();
                 loop {
-                    // Try to get a buffer from the printer thread, or allocate a new one
+                    // Try to get a buffer from the writer thread, or allocate a new one
                     let mut buf = buf_return_receiver
                         .try_recv()
                         .unwrap_or_else(|_| vec![0u8; crate::BUFFER_SIZE]);
@@ -265,8 +265,8 @@ mod singlethreaded {
         generate_to_stdout(rand::rngs::OsRng)
     }
 
-    /// Given a random number generator, prints the output of it to stdout forever, or until there
-    /// is an error printing to stdout. Usually because the pipe has closed.
+    /// Given a random number generator, writes the output of it to stdout forever, or until there
+    /// is an error writing to stdout. Usually because the pipe has closed.
     fn generate_to_stdout(mut rng: impl RngCore) {
         let stdout = io::stdout();
         let mut stdout_lock = stdout.lock();
