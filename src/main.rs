@@ -78,6 +78,10 @@ struct Opt {
     /// gained from trying to extract randomness from the OS in parallel.
     #[structopt(long, short = "t")]
     max_threads: Option<usize>,
+
+    /// Activates verbose mode, where spawning of worker threads will be prented to stderr.
+    #[structopt(long, short)]
+    verbose: bool,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -131,7 +135,7 @@ fn main() {
 
     match max_threads {
         0 | 1 => singlethreaded::run(algorithm, seed),
-        max_threads => multithreaded::run(algorithm, max_threads),
+        max_threads => multithreaded::run(algorithm, max_threads, opt.verbose),
     }
 }
 
@@ -142,7 +146,7 @@ mod multithreaded {
     use std::io::{self, Write};
     use std::thread;
 
-    pub(crate) fn run(algorithm: Algorithm, max_threads: usize) {
+    pub(crate) fn run(algorithm: Algorithm, max_threads: usize, verbose: bool) {
         let run_fn = match algorithm {
             Algorithm::Default => run_internal::<rand::rngs::StdRng>,
             Algorithm::Hc => run_internal::<rand_hc::Hc128Rng>,
@@ -153,10 +157,10 @@ mod multithreaded {
             Algorithm::Pcg => run_internal::<crate::PcgRng>,
             Algorithm::Os => panic!("OS PRNG does not support multithreaded mode"),
         };
-        run_fn(max_threads);
+        run_fn(max_threads, verbose);
     }
 
-    fn run_internal<R: SeedableRng + RngCore>(max_threads: usize) {
+    fn run_internal<R: SeedableRng + RngCore>(max_threads: usize, verbose: bool) {
         let stdout = io::stdout();
         let mut stdout_lock = stdout.lock();
 
@@ -171,6 +175,7 @@ mod multithreaded {
                     &sender,
                     &receiver,
                     &buf_return_receiver,
+                    verbose,
                 )
             });
             if stdout_lock.write_all(&buf).is_err() {
@@ -194,6 +199,7 @@ mod multithreaded {
         sender: &Sender<Vec<u8>>,
         receiver: &Receiver<Vec<u8>>,
         buf_return_receiver: &Receiver<Vec<u8>>,
+        verbose: bool,
     ) -> Vec<u8> {
         if threads.len() < max_threads {
             let sender = sender.clone();
@@ -211,7 +217,9 @@ mod multithreaded {
                     }
                 }
             }));
-            eprintln!("Spawning worker thread {}", threads.len());
+            if verbose {
+                eprintln!("Spawning worker thread {}", threads.len());
+            }
         }
         receiver.recv().expect("The channel can't be closed here")
     }
