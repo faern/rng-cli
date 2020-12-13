@@ -148,7 +148,7 @@ fn main() {
         }
         1
     } else {
-        opt.max_threads.unwrap_or_else(|| num_cpus::get())
+        opt.max_threads.unwrap_or_else(num_cpus::get)
     };
 
     match max_threads {
