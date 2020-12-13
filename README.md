@@ -1,18 +1,19 @@
 # rng - A random number generator CLI tool.
 
-Contains a number of (pseudo) random number generator algorithms. Given one of these it prints an
+Contains a number of (pseudo) random number generator algorithms. Given one of these it writes an
 infinite stream of bytes generated from that algorithm to stdout.
 
-In unix terms it can basically be viewed as the equivalent of `cat /dev/urandom` but with a
-selection of different (mostly user-space) PRNG algorithms to choose from.
+In unix terms it can be viewed as the equivalent of `cat /dev/urandom` but with a
+selection of different (mostly user-space) PRNG algorithms to choose from. This is usually way
+faster than `/dev/urandom` but can also provide lower entropy output, depending on which algorithm
+is chosen.
 
-This tool is basically a CLI frontend for the awesome `rand` crate.
+This tool is more or less a CLI frontend for the awesome `rand` crate.
 
 # How to use
 
-This tool is very simple and have very few arguments:
 ```
-rng [--seed <seed>] [<algorithm>]
+rng [--seed <seed>] [--max threads] [--verbose] [<algorithm>]
 ```
 
 If no arguments are given it uses the default algorithm and seeds it from the operating system.
@@ -22,7 +23,12 @@ that is not cryptographically secure for example.
 The `--seed <seed>` argument initializes the random number algorithm with the given `<seed>` instead
 of obtaining some entropy from the operating system. You don't want to use this for any
 cryptographical purposes. Giving a seed can be useful when you need determinism and must be able
-to produce identical data in multiple runs.
+to produce identical data over multiple runs.
+
+The `--max-threads` argument sets an upper limit on how many threads the tool can use in
+multithreaded mode. By default this is set to the number of hardware threads available on
+the system. The exception is when `--seed` is specified or the algorithm is "os", then the
+tool always runs in single-threaded mode.
 
 ## Example
 
