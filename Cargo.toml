@@ -1,6 +1,6 @@
 [package]
 name = "rng-cli"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Linus Färnstrand <faern@faern.net>"]
 description = """
     A random data generator CLI tool. Prints an infinite stream of data generated from a selected
