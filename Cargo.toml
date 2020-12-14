@@ -26,3 +26,6 @@ rand_hc = "0.2.0"
 rand_pcg = "0.2.0"
 rand_xorshift = "0.2.0"
 structopt = "0.3.21"
+
+[target.'cfg(unix)'.dependencies]
+simple-signal = "1.1.1"

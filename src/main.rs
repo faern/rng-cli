@@ -1,5 +1,10 @@
 use std::fmt;
+use std::io::{self, Write};
+use std::time::Instant;
 use structopt::StructOpt;
+
+mod formatting;
+mod platform;
 
 /// The number of bytes to handle in each generate-write iteration.
 const BUFFER_SIZE: usize = 64 * 1024;
@@ -85,7 +90,7 @@ struct Opt {
     #[structopt(long, short = "t")]
     max_threads: Option<usize>,
 
-    /// Activates verbose mode, where spawning of worker threads will be prented to stderr.
+    /// Activates verbose mode, where extra information will be printed to stderr.
     #[structopt(long, short)]
     verbose: bool,
 }
@@ -151,9 +156,36 @@ fn main() {
         opt.max_threads.unwrap_or_else(num_cpus::get)
     };
 
+    let stdout = io::stdout();
+    let mut stdout_lock = stdout.lock();
+    let mut bytes_written: u64 = 0;
+    let should_abort = platform::abort_handle();
+    let write_fn = |buf: &[u8; BUFFER_SIZE]| {
+        if stdout_lock.write_all(&*buf).is_err() {
+            return true;
+        }
+        bytes_written += crate::BUFFER_SIZE as u64;
+        should_abort()
+    };
+
+    let start = Instant::now();
+    // Start generating the data and writing it
     match max_threads {
-        0 | 1 => singlethreaded::run(algorithm, seed),
-        max_threads => multithreaded::run(algorithm, max_threads, opt.verbose),
+        0 | 1 => singlethreaded::run(algorithm, seed, write_fn),
+        max_threads => multithreaded::run(algorithm, max_threads, write_fn, opt.verbose),
+    }
+
+    // Print statistics about how much was written and in what time
+    if opt.verbose {
+        let elapsed_seconds = start.elapsed().as_millis() as f64 / 1000.0;
+        let bytes_per_second = bytes_written as f64 / elapsed_seconds;
+        eprintln!(
+            "{} ({} bytes) written in {:.1} seconds = {}/s",
+            formatting::format_bytes_written(bytes_written),
+            bytes_written,
+            elapsed_seconds,
+            formatting::format_bytes_written(bytes_per_second as u64),
+        );
     }
 }
 
@@ -161,27 +193,32 @@ mod multithreaded {
     use super::Algorithm;
     use crossbeam_channel::{Receiver, Sender};
     use rand::{RngCore, SeedableRng};
-    use std::io::{self, Write};
     use std::thread;
 
-    pub(crate) fn run(algorithm: Algorithm, max_threads: usize, verbose: bool) {
+    pub(crate) fn run<F: FnMut(&[u8; crate::BUFFER_SIZE]) -> bool>(
+        algorithm: Algorithm,
+        max_threads: usize,
+        write_fn: F,
+        verbose: bool,
+    ) {
         let run_fn = match algorithm {
-            Algorithm::Default => run_internal::<rand::rngs::StdRng>,
-            Algorithm::Hc => run_internal::<rand_hc::Hc128Rng>,
-            Algorithm::ChaCha8 => run_internal::<rand_chacha::ChaCha8Rng>,
-            Algorithm::ChaCha12 => run_internal::<rand_chacha::ChaCha12Rng>,
-            Algorithm::ChaCha20 => run_internal::<rand_chacha::ChaCha20Rng>,
-            Algorithm::XorShift => run_internal::<rand_xorshift::XorShiftRng>,
-            Algorithm::Pcg => run_internal::<crate::PcgRng>,
+            Algorithm::Default => run_internal::<rand::rngs::StdRng, F>,
+            Algorithm::Hc => run_internal::<rand_hc::Hc128Rng, F>,
+            Algorithm::ChaCha8 => run_internal::<rand_chacha::ChaCha8Rng, F>,
+            Algorithm::ChaCha12 => run_internal::<rand_chacha::ChaCha12Rng, F>,
+            Algorithm::ChaCha20 => run_internal::<rand_chacha::ChaCha20Rng, F>,
+            Algorithm::XorShift => run_internal::<rand_xorshift::XorShiftRng, F>,
+            Algorithm::Pcg => run_internal::<crate::PcgRng, F>,
             Algorithm::Os => panic!("OS PRNG does not support multithreaded mode"),
         };
-        run_fn(max_threads, verbose);
+        run_fn(max_threads, verbose, write_fn);
     }
 
-    fn run_internal<R: SeedableRng + RngCore>(max_threads: usize, verbose: bool) {
-        let stdout = io::stdout();
-        let mut stdout_lock = stdout.lock();
-
+    fn run_internal<R: SeedableRng + RngCore, F: FnMut(&[u8; crate::BUFFER_SIZE]) -> bool>(
+        max_threads: usize,
+        verbose: bool,
+        mut write_fn: F,
+    ) {
         let (sender, receiver) = crossbeam_channel::bounded(max_threads);
         let (buf_return_sender, buf_return_receiver) =
             crossbeam_channel::bounded(max_threads.max(8));
@@ -197,7 +234,7 @@ mod multithreaded {
                     verbose,
                 )
             });
-            if stdout_lock.write_all(&*buf).is_err() {
+            if write_fn(&*buf) {
                 break;
             }
             let _ = buf_return_sender.try_send(buf);
@@ -247,47 +284,53 @@ mod multithreaded {
 mod singlethreaded {
     use crate::Algorithm;
     use rand::{RngCore, SeedableRng};
-    use std::io::{self, Write};
 
-    pub(crate) fn run(algorithm: Algorithm, seed: Option<u64>) {
+    pub(crate) fn run<F: FnMut(&[u8; crate::BUFFER_SIZE]) -> bool>(
+        algorithm: Algorithm,
+        seed: Option<u64>,
+        write_fn: F,
+    ) {
         let run_fn = match algorithm {
-            Algorithm::Default => run_userspace::<rand::rngs::StdRng>,
-            Algorithm::Hc => run_userspace::<rand_hc::Hc128Rng>,
-            Algorithm::ChaCha8 => run_userspace::<rand_chacha::ChaCha8Rng>,
-            Algorithm::ChaCha12 => run_userspace::<rand_chacha::ChaCha12Rng>,
-            Algorithm::ChaCha20 => run_userspace::<rand_chacha::ChaCha20Rng>,
-            Algorithm::XorShift => run_userspace::<rand_xorshift::XorShiftRng>,
-            Algorithm::Pcg => run_userspace::<crate::PcgRng>,
+            Algorithm::Default => run_userspace::<rand::rngs::StdRng, F>,
+            Algorithm::Hc => run_userspace::<rand_hc::Hc128Rng, F>,
+            Algorithm::ChaCha8 => run_userspace::<rand_chacha::ChaCha8Rng, F>,
+            Algorithm::ChaCha12 => run_userspace::<rand_chacha::ChaCha12Rng, F>,
+            Algorithm::ChaCha20 => run_userspace::<rand_chacha::ChaCha20Rng, F>,
+            Algorithm::XorShift => run_userspace::<rand_xorshift::XorShiftRng, F>,
+            Algorithm::Pcg => run_userspace::<crate::PcgRng, F>,
             Algorithm::Os => run_os,
         };
-        run_fn(seed);
+        run_fn(seed, write_fn);
     }
 
-    pub fn run_userspace<R: SeedableRng + RngCore>(seed: Option<u64>) {
+    pub fn run_userspace<R: SeedableRng + RngCore, F: FnMut(&[u8; crate::BUFFER_SIZE]) -> bool>(
+        seed: Option<u64>,
+        write_fn: F,
+    ) {
         let rng = match seed {
             None => R::from_entropy(),
             Some(seed) => R::seed_from_u64(seed),
         };
-        generate_to_stdout(rng)
+        generate_to_stdout(rng, write_fn)
     }
 
-    fn run_os(seed: Option<u64>) {
+    fn run_os<F: FnMut(&[u8; crate::BUFFER_SIZE]) -> bool>(seed: Option<u64>, write_fn: F) {
         if seed.is_some() {
             eprintln!("WARNING: seed is ignored when used with the OS PRNG");
         }
-        generate_to_stdout(rand::rngs::OsRng)
+        generate_to_stdout(rand::rngs::OsRng, write_fn)
     }
 
     /// Given a random number generator, writes the output of it to stdout forever, or until there
     /// is an error writing to stdout. Usually because the pipe has closed.
-    fn generate_to_stdout(mut rng: impl RngCore) {
-        let stdout = io::stdout();
-        let mut stdout_lock = stdout.lock();
-
+    fn generate_to_stdout<F: FnMut(&[u8; crate::BUFFER_SIZE]) -> bool>(
+        mut rng: impl RngCore,
+        mut write_fn: F,
+    ) {
         let mut buf = [0u8; crate::BUFFER_SIZE];
         loop {
             rng.fill_bytes(&mut buf);
-            if stdout_lock.write_all(&buf).is_err() {
+            if write_fn(&buf) {
                 break;
             }
         }
