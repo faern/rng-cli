@@ -1,5 +1,7 @@
 use std::fmt;
+use std::fs;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::time::Instant;
 use structopt::StructOpt;
 
@@ -93,6 +95,10 @@ struct Opt {
     /// Activates verbose mode, where extra information will be printed to stderr.
     #[structopt(long, short)]
     verbose: bool,
+
+    /// Writes to <output> instead of stdout.
+    #[structopt(long, short)]
+    output: Option<PathBuf>,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -156,12 +162,23 @@ fn main() {
         opt.max_threads.unwrap_or_else(num_cpus::get)
     };
 
+    // Prepare the writer (stdout/file) to write all data to
     let stdout = io::stdout();
-    let mut stdout_lock = stdout.lock();
+    let mut output = match opt.output {
+        None => Output::Stdout(stdout.lock()),
+        Some(path) => {
+            let file = fs::File::create(&path).unwrap_or_else(|e| {
+                eprintln!("Failed to open output file: {}", e);
+                std::process::exit(1);
+            });
+            Output::File(file)
+        }
+    };
+
     let mut bytes_written: u64 = 0;
     let should_abort = platform::abort_handle();
     let write_fn = |buf: &[u8; BUFFER_SIZE]| {
-        if stdout_lock.write_all(&*buf).is_err() {
+        if output.write_all(&*buf).is_err() {
             return true;
         }
         bytes_written += crate::BUFFER_SIZE as u64;
@@ -333,6 +350,27 @@ mod singlethreaded {
             if write_fn(&buf) {
                 break;
             }
+        }
+    }
+}
+
+enum Output<'a> {
+    Stdout(io::StdoutLock<'a>),
+    File(fs::File),
+}
+
+impl<'a> Write for Output<'a> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Output::Stdout(stdout) => stdout.write(buf),
+            Output::File(f) => f.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Output::Stdout(stdout) => stdout.flush(),
+            Output::File(f) => f.flush(),
         }
     }
 }
