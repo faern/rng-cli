@@ -183,7 +183,8 @@ mod multithreaded {
         let mut stdout_lock = stdout.lock();
 
         let (sender, receiver) = crossbeam_channel::bounded(max_threads);
-        let (buf_return_sender, buf_return_receiver) = crossbeam_channel::bounded(max_threads);
+        let (buf_return_sender, buf_return_receiver) =
+            crossbeam_channel::bounded(max_threads.max(8));
         let mut threads = Vec::with_capacity(max_threads);
         loop {
             let buf = receiver.try_recv().unwrap_or_else(|_| {
@@ -196,7 +197,7 @@ mod multithreaded {
                     verbose,
                 )
             });
-            if stdout_lock.write_all(&buf).is_err() {
+            if stdout_lock.write_all(&*buf).is_err() {
                 break;
             }
             let _ = buf_return_sender.try_send(buf);
@@ -214,11 +215,11 @@ mod multithreaded {
     fn add_worker_thread<R: SeedableRng + RngCore>(
         threads: &mut Vec<thread::JoinHandle<()>>,
         max_threads: usize,
-        sender: &Sender<Vec<u8>>,
-        receiver: &Receiver<Vec<u8>>,
-        buf_return_receiver: &Receiver<Vec<u8>>,
+        sender: &Sender<Box<[u8; crate::BUFFER_SIZE]>>,
+        receiver: &Receiver<Box<[u8; crate::BUFFER_SIZE]>>,
+        buf_return_receiver: &Receiver<Box<[u8; crate::BUFFER_SIZE]>>,
         verbose: bool,
-    ) -> Vec<u8> {
+    ) -> Box<[u8; crate::BUFFER_SIZE]> {
         if threads.len() < max_threads {
             let sender = sender.clone();
             let buf_return_receiver = buf_return_receiver.clone();
@@ -228,8 +229,8 @@ mod multithreaded {
                     // Try to get a buffer from the writer thread, or allocate a new one
                     let mut buf = buf_return_receiver
                         .try_recv()
-                        .unwrap_or_else(|_| vec![0u8; crate::BUFFER_SIZE]);
-                    rng.fill_bytes(&mut buf);
+                        .unwrap_or_else(|_| Box::new([0u8; crate::BUFFER_SIZE]));
+                    rng.fill_bytes(&mut *buf);
                     if sender.send(buf).is_err() {
                         break;
                     }
