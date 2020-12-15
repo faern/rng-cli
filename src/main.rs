@@ -191,6 +191,9 @@ fn main() {
         0 | 1 => singlethreaded::run(algorithm, seed, write_fn),
         max_threads => multithreaded::run(algorithm, max_threads, write_fn, opt.verbose),
     }
+    if let Err(e) = output.flush() {
+        eprintln!("Failed to flush output: {}", e);
+    }
 
     // Print statistics about how much was written and in what time
     if opt.verbose {
