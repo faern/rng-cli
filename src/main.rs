@@ -208,8 +208,9 @@ fn main() {
 
 mod multithreaded {
     use super::Algorithm;
-    use crossbeam_channel::{Receiver, Sender};
+    use parking_lot::{Condvar, Mutex};
     use rand::{RngCore, SeedableRng};
+    use std::sync::Arc;
     use std::thread;
 
     pub(crate) fn run<F: FnMut(&[u8; crate::BUFFER_SIZE]) -> bool>(
@@ -236,65 +237,79 @@ mod multithreaded {
         verbose: bool,
         mut write_fn: F,
     ) {
-        let (sender, receiver) = crossbeam_channel::bounded(max_threads);
-        let (buf_return_sender, buf_return_receiver) =
-            crossbeam_channel::bounded(max_threads.max(8));
-        let mut threads = Vec::with_capacity(max_threads);
-        loop {
-            let buf = receiver.try_recv().unwrap_or_else(|_| {
-                add_worker_thread::<R>(
-                    &mut threads,
-                    max_threads,
-                    &sender,
-                    &receiver,
-                    &buf_return_receiver,
-                    verbose,
-                )
-            });
-            if write_fn(&*buf) {
-                break;
-            }
-            let _ = buf_return_sender.try_send(buf);
+        let mut buffers1 = Vec::with_capacity(max_threads);
+        let mut buffers2 = Vec::with_capacity(max_threads);
+        for _ in 0..max_threads {
+            buffers1.push(Arc::new((
+                Mutex::new((BufState::Written, [0u8; crate::BUFFER_SIZE])),
+                Condvar::new(),
+            )));
+            buffers2.push(Arc::new((
+                Mutex::new((BufState::Written, [0u8; crate::BUFFER_SIZE])),
+                Condvar::new(),
+            )));
         }
-        drop(receiver);
+        let mut threads = Vec::with_capacity(max_threads);
+        let mut i = 0;
+        for (b1, b2) in buffers1.iter().cloned().zip(buffers2.iter().cloned()) {
+            threads.push(thread::spawn(move || {
+                let mut rng = R::from_entropy();
+                for buffer in [b1, b2].iter().cycle() {
+                    let mut lock = buffer.0.lock();
+                    // The writer thread did not touch the buffer yet, wait for it to catch up.
+                    if lock.0 == BufState::Randomized {
+                        buffer.1.wait(&mut lock);
+                    }
+                    if lock.0 == BufState::Abort {
+                        break;
+                    }
+                    assert!(lock.0 == BufState::Written);
+                    // Generate new random data.
+                    rng.fill_bytes(&mut lock.1);
+                    // Set the state and notify the writer.
+                    lock.0 = BufState::Randomized;
+                    drop(lock);
+                    buffer.1.notify_one();
+                }
+                eprintln!("Worker thread exiting");
+            }));
+            i += 1;
+            if verbose {
+                eprintln!("Spawning worker thread {}", i);
+            }
+        }
+        'writer: loop {
+            for buffer in buffers1.iter().chain(buffers2.iter()) {
+                let mut lock = buffer.0.lock();
+                // The worker thread did not fill the buffer with new data yet, wait for it to catch up.
+                if lock.0 == BufState::Written {
+                    buffer.1.wait(&mut lock);
+                }
+                assert!(lock.0 == BufState::Randomized);
+                if write_fn(&mut lock.1) {
+                    break 'writer;
+                }
+                lock.0 = BufState::Written;
+                drop(lock);
+                buffer.1.notify_one();
+            }
+        }
+        for buffer in buffers1.iter().chain(buffers2.iter()) {
+            let mut lock = buffer.0.lock();
+            lock.0 = BufState::Abort;
+            drop(lock);
+            buffer.1.notify_one();
+        }
         for thread in threads {
             thread.join().expect("Worker threads don't panic");
         }
     }
 
-    /// Spawn another worker thread producing random data.
-    /// This is cold since it will only happen a few times at the very start of the run.
-    #[cold]
-    #[inline(never)]
-    fn add_worker_thread<R: SeedableRng + RngCore>(
-        threads: &mut Vec<thread::JoinHandle<()>>,
-        max_threads: usize,
-        sender: &Sender<Box<[u8; crate::BUFFER_SIZE]>>,
-        receiver: &Receiver<Box<[u8; crate::BUFFER_SIZE]>>,
-        buf_return_receiver: &Receiver<Box<[u8; crate::BUFFER_SIZE]>>,
-        verbose: bool,
-    ) -> Box<[u8; crate::BUFFER_SIZE]> {
-        if threads.len() < max_threads {
-            let sender = sender.clone();
-            let buf_return_receiver = buf_return_receiver.clone();
-            threads.push(thread::spawn(move || {
-                let mut rng = R::from_entropy();
-                loop {
-                    // Try to get a buffer from the writer thread, or allocate a new one
-                    let mut buf = buf_return_receiver
-                        .try_recv()
-                        .unwrap_or_else(|_| Box::new([0u8; crate::BUFFER_SIZE]));
-                    rng.fill_bytes(&mut *buf);
-                    if sender.send(buf).is_err() {
-                        break;
-                    }
-                }
-            }));
-            if verbose {
-                eprintln!("Spawning worker thread {}", threads.len());
-            }
-        }
-        receiver.recv().expect("The channel can't be closed here")
+    #[derive(Eq, PartialEq)]
+    enum BufState {
+        Randomized,
+        Written,
+        Abort,
     }
 }
 
